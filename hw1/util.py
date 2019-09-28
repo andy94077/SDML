@@ -7,9 +7,9 @@ from nltk.tokenize import word_tokenize
 from keras_bert import get_base_dict, get_model, gen_batch_inputs, load_vocabulary, load_trained_model_from_checkpoint, Tokenizer
 from tqdm import tqdm
 
-def load_task2_trainXY(dict_path):
-    if not os.path.exists('task2_trainX.npy') or not os.path.exists('task2_trainY.npy') or not os.path.exists('task2_train_seg.npy'):
-        df = pd.read_csv('task2_trainset.csv', dtype = str)
+def load_task2_trainXY(dict_path, data_dir):
+    if not os.path.exists(os.path.join(data_dir, 'task2_trainX.npy')) or not os.path.exists(os.path.join(data_dir, 'task2_trainY.npy')) or not os.path.exists(os.path.join(data_dir, 'task2_train_seg.npy')):
+        df = pd.read_csv(os.path.join(data_dir, 'task2_trainset.csv'), dtype = str)
         cate = df.values[:, -1] 
 
         # generating Y
@@ -34,9 +34,9 @@ def load_task2_trainXY(dict_path):
             input_seg.append(seg)
         X = np.array(input_data)
         seg = np.array(input_seg)
-        np.save('task2_trainX.npy', X)
-        np.save('task2_trainY.npy', Y)
-        np.save('task2_train_seg.npy', seg)
+        np.save(os.path.join(data_dir, 'task2_trainX.npy'), X)
+        np.save(os.path.join(data_dir, 'task2_trainY.npy'), Y)
+        np.save(os.path.join(data_dir, 'task2_train_seg.npy'), seg)
     else:
-        X, Y, seg = np.load('task2_trainX.npy'), np.load('task2_trainY.npy'), np.load('task2_train_seg.npy')
+        X, Y, seg = np.load(os.path.join(data_dir, 'task2_trainX.npy')), np.load(os.path.join(data_dir, 'task2_trainY.npy')), np.load(os.path.join(data_dir, 'task2_train_seg.npy'))
     return X, Y, seg

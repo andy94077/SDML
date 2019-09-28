@@ -21,9 +21,9 @@ def get_model(model_path, config_path, checkpoint_path):
     model.load_weights(model_path)
     return model
 
-def load_task2_testX(dict_path):
-    if not os.path.exists('task2_testX.npy') or not os.path.exists('task2_test_seg.npy'):
-        df = pd.read_csv('task2_public_testset.csv', dtype = str)
+def load_task2_testX(dict_path, data_dir):
+    if not os.path.exists(os.path.join(data_dir, 'task2_testX.npy')) or not os.path.exists(os.path.join(data_dir, 'task2_test_seg.npy')):
+        df = pd.read_csv(os.path.join(data_dir, 'task2_public_testset.csv'), dtype = str)
         abstract = df.values[:, 2]
 
         # collect words
@@ -40,13 +40,13 @@ def load_task2_testX(dict_path):
         X = np.asarray(input_data)
         seg = np.asarray(input_seg)
 
-        np.save('task2_testX.npy', X)
-        np.save('task2_test_seg.npy', seg)
+        np.save(os.path.join(data_dir, 'task2_testX.npy'), X)
+        np.save(os.path.join(data_dir, 'task2_test_seg.npy'), seg)
     else:
-        X, seg = np.load('task2_testX.npy'), np.load('task2_test_seg.npy')
+        X, seg = np.load(os.path.join(data_dir, 'task2_testX.npy')), np.load(os.path.join(data_dir, 'task2_test_seg.npy'))
     return X, seg
 
-def generate_submit(model, output_file, dict_path):
+def generate_submit(model, output_file, dict_path, data_dir):
     X, seg = load_task2_testX(dict_path)
     Y_pred = model.predict([X, seg], verbose=1)
     Y_pred = (Y_pred > 0.5)

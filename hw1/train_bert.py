@@ -18,7 +18,7 @@ import tensorflow as tf
 import util
 from submit import generate_submit
 
-#os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '3'
 config = tf.ConfigProto()
 config.gpu_options.allow_growth = True
 sess = tf.Session(config = config)
@@ -28,19 +28,19 @@ config_path = 'bert_dataset/uncased_L-12_H-768_A-12/bert_config.json'
 checkpoint_path = 'bert_dataset/uncased_L-12_H-768_A-12/bert_model.ckpt'
 dict_path = 'bert_dataset/uncased_L-12_H-768_A-12/vocab.txt'
 seq_len = 512
+opt_filepath = sys.argv[1]
+data_dir = sys.argv[2]
 
-X, Y, seg = util.load_task2_trainXY(dict_path)
+X, Y, seg = util.load_task2_trainXY(dict_path, data_dir)
 assert X.shape[0] == Y.shape[0]
-np.random.seed(880301)
+np.random.seed(246601)
 rd_seq = np.random.permutation(X.shape[0])
 X_train, X_val, Y_train, Y_val = X[rd_seq[:-1000]], X[rd_seq[-1000:]], Y[rd_seq[:-1000]], Y[rd_seq[-1000:]]
 seg_train, seg_val = seg[rd_seq[:-1000]], seg[rd_seq[-1000:]]
 print(f'\033[32;1mX_train: {X_train.shape}, X_val:{X_val.shape}, Y_train:{Y_train.shape}, Y_val:{Y_val.shape}, seg_train:{seg_train.shape}, seg_val:{seg_val.shape}\033[0m')
 
-# getting model:
-def hamming_acc(y_true, y_pred):
+def f1_acc(y_true, y_pred):
     y_pred = K.round(y_pred)
-
     tp = K.sum(K.cast(y_true * y_pred, 'float'), axis = 0)
     fp = K.sum(K.cast((1 - y_true) * y_pred, 'float'), axis = 0)
     fn = K.sum(K.cast(y_true * (1 - y_pred), 'float'), axis = 0)
@@ -64,8 +64,7 @@ x = Dense(1024, activation = 'relu')(x)
 Output_layer = Dense(3, activation = 'sigmoid')(x)
 model = Model(Input_layer, Output_layer)
 
-opt_filepath = sys.argv[1]
-checkpoint = ModelCheckpoint(opt_filepath, monitor = 'val_loss', verbose = 1, save_best_only = True, mode = 'min', save_weights_only = True) 
+checkpoint = ModelCheckpoint(opt_filepath, monitor = 'val_f1_acc', verbose = 1, save_best_only = True, mode = 'min', save_weights_only = True) 
 reduce_lr = ReduceLROnPlateau(factor=0.8, patience=3, verbose=1, min_lr=1e-5)
 callbacks_list = [checkpoint, reduce_lr]
 
@@ -75,7 +74,7 @@ trainable_layer = [103, 95]#, 87, 71, 55]
 epoch_num = [20, 20, 8 , 4]
 batch_size = [16, 16, 8, 4]
 resume = False
-st = 0
+st = -1
 best = np.inf
 if resume:
     if os.path.exists(opt_filepath+'.rc'):
@@ -91,7 +90,7 @@ if resume:
             else: 
                 layer.trainable = False
 
-        model.compile(loss='binary_crossentropy', optimizer = Adam(1e-3), metrics = ['acc'])
+        model.compile(loss='binary_crossentropy', optimizer = Adam(1e-3), metrics = [f1_acc])
         checkpoint.best = best
         if os.path.exists(opt_filepath):
             model.load_weights(opt_filepath)
@@ -102,7 +101,8 @@ if resume:
             f.write(f'{l}\n{checkpoint.best}\n')
         model.save_weights(opt_filepath+f'_{trainable_layer[l]}')
 else:
-    output_file = sys.argv[2]
+    output_file = sys.argv[3]
+    print(f'\033[32;1mGenerating output file {output_file}...\033[0m')
     model.load_weights(opt_filepath)
-    generate_submit(model, output_file, dict_path)
+    generate_submit(model, output_file, dict_path, data_dir)
 

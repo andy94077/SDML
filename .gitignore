@@ -1,5 +1,5 @@
-hw1/bert_dataset/
-hw1/test/
+hw1/bert_dataset
+hw1/test
 *.npy
 *.csv
 

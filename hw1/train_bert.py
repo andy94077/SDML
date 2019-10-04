@@ -6,10 +6,10 @@ from multiprocessing import Pool
 from nltk.tokenize import word_tokenize
 from keras_bert import get_base_dict, get_model, gen_batch_inputs, load_vocabulary, load_trained_model_from_checkpoint, Tokenizer
 from tqdm import tqdm
-from keras.utils import plot_model
+from keras.utils import plot_model, multi_gpu_model
 from keras.regularizers import l2
 from keras.models import Model
-from keras.layers import Lambda, Dense, LeakyReLU
+from keras.layers import Lambda, Dense, BatchNormalization, Dropout, Activation
 from keras.optimizers import Adam
 from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 from keras import backend as K
@@ -18,15 +18,22 @@ import tensorflow as tf
 import util
 from submit import generate_submit
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '3'
+os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 config = tf.ConfigProto()
 config.gpu_options.allow_growth = True
 sess = tf.Session(config = config)
 K.tensorflow_backend.set_session(sess)
 
-config_path = 'bert_dataset/uncased_L-12_H-768_A-12/bert_config.json'
-checkpoint_path = 'bert_dataset/uncased_L-12_H-768_A-12/bert_model.ckpt'
-dict_path = 'bert_dataset/uncased_L-12_H-768_A-12/vocab.txt'
+bert_version = 12
+if bert_version == 24:
+    config_path = 'bert_dataset/wwm_uncased_L-24_H-1024_A-16/bert_config.json'
+    checkpoint_path = 'bert_dataset/wwm_uncased_L-24_H-1024_A-16/bert_model.ckpt'
+    dict_path = 'bert_dataset/wwm_uncased_L-24_H-1024_A-16/vocab.txt'
+else:
+    config_path = 'bert_dataset/uncased_L-12_H-768_A-12/bert_config.json'
+    checkpoint_path = 'bert_dataset/uncased_L-12_H-768_A-12/bert_model.ckpt'
+    dict_path = 'bert_dataset/uncased_L-12_H-768_A-12/vocab.txt'
+    
 seq_len = 512
 opt_filepath = sys.argv[1]
 data_dir = sys.argv[2]
@@ -52,36 +59,53 @@ def f1_acc(y_true, y_pred):
 
     return K.mean(f1)
 
+def f1_loss(y_true, y_pred):
+    tp = K.sum(K.cast(y_true * y_pred, 'float'), axis = 0)
+    fp = K.sum(K.cast((1 - y_true) * y_pred, 'float'), axis = 0)
+    fn = K.sum(K.cast(y_true * (1 - y_pred), 'float'), axis = 0)
+    p = tp / (tp + fp + K.epsilon())
+    r = tp / (tp + fn + K.epsilon())
+
+    f1 = 2*p*r / (p + r + K.epsilon())
+    f1 = tf.where(tf.is_nan(f1), tf.zeros_like(f1), f1)
+
+    return 1 - K.mean(f1)
+
 def hamming_loss(y_true, y_pred):
     return K.mean(y_true*(1-y_pred)+(1-y_true)*y_pred, axis=-1)
 
 model = load_trained_model_from_checkpoint(config_path, checkpoint_path, training = True, trainable = True, seq_len = seq_len)
+#model.load_weights('fine_tune/model12-24single.weight')
+model.load_weights('bert_dataset/bert_custom_pretrained_v3.weight')
 Input_layer = model.inputs[:2]
 x = model.layers[-9].output
 x = Lambda(lambda model: model[:, 0])(x)
-x = Dense(1024, activation = 'relu')(x)
-x = Dense(1024, activation = 'relu')(x)
+x = Dense(1024)(x)
+x = BatchNormalization()(x)
+x = Activation('tanh')(x)
+x = Dense(1024)(x)
+x = BatchNormalization()(x)
+x = Activation('tanh')(x)
 Output_layer = Dense(3, activation = 'sigmoid')(x)
 model = Model(Input_layer, Output_layer)
 
-checkpoint = ModelCheckpoint(opt_filepath, monitor = 'val_f1_acc', verbose = 1, save_best_only = True, mode = 'min', save_weights_only = True) 
-reduce_lr = ReduceLROnPlateau(factor=0.8, patience=3, verbose=1, min_lr=1e-5)
+checkpoint = ModelCheckpoint(opt_filepath, monitor = 'val_loss', verbose = 1, save_best_only = True, mode = 'min', save_weights_only = True) 
+reduce_lr = ReduceLROnPlateau(factor=0.8, patience=4, verbose=1, min_lr=1e-6)
 callbacks_list = [checkpoint, reduce_lr]
 
-model.summary()
+#model.summary()
 
-trainable_layer = [103, 95]#, 87, 71, 55]
-epoch_num = [20, 20, 8 , 4]
-batch_size = [16, 16, 8, 4]
-resume = False
+trainable_layer = [199] if bert_version == 24 else [103]#, 87, 71, 55]
+epoch_num = [80, 40, 40, 8 , 4]
+batch_size = [8, 8, 8, 8, 4]
+resume = True
 st = -1
-best = np.inf
 if resume:
     if os.path.exists(opt_filepath+'.rc'):
         print('\033[32;1mLoad Model\033[0m')
         with open(opt_filepath+'.rc', 'r') as f:
             st = int(f.readline())
-            best = float(f.readline())
+            checkpoint.best = float(f.readline())
     for l in range(len(trainable_layer))[st+1:]:
         for i, layer in enumerate(model.layers):
             if i > trainable_layer[l]:
@@ -90,8 +114,7 @@ if resume:
             else: 
                 layer.trainable = False
 
-        model.compile(loss='binary_crossentropy', optimizer = Adam(1e-3), metrics = [f1_acc])
-        checkpoint.best = best
+        model.compile(loss=f1_loss, optimizer = Adam(1e-3), metrics = [f1_acc, 'acc'])
         if os.path.exists(opt_filepath):
             model.load_weights(opt_filepath)
 
@@ -103,6 +126,8 @@ if resume:
 else:
     output_file = sys.argv[3]
     print(f'\033[32;1mGenerating output file {output_file}...\033[0m')
+    model.compile(loss='binary_crossentropy', optimizer = 'adam', metrics = [f1_acc, 'acc'])
     model.load_weights(opt_filepath)
-    generate_submit(model, output_file, dict_path, data_dir)
+    print(model.evaluate([X_val, seg_val], Y_val[:, :-1]))
+    #generate_submit(model, output_file, dict_path, data_dir)
 

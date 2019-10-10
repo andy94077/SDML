@@ -16,14 +16,16 @@ from keras import backend as K
 import tensorflow as tf
 
 import util
-from submit import generate_submit
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+gpus = tf.config.experimental.list_physical_devices('GPU')
+tf.config.experimental.set_memory_growth(gpus[0], True)
+'''
 config = tf.ConfigProto()
 config.gpu_options.allow_growth = True
 sess = tf.Session(config = config)
 K.tensorflow_backend.set_session(sess)
-
+'''
 bert_version = 12
 if bert_version == 24:
     config_path = 'bert_dataset/wwm_uncased_L-24_H-1024_A-16/bert_config.json'
@@ -71,9 +73,6 @@ def f1_loss(y_true, y_pred):
 
     return 1 - K.mean(f1)
 
-def hamming_loss(y_true, y_pred):
-    return K.mean(y_true*(1-y_pred)+(1-y_true)*y_pred, axis=-1)
-
 model = load_trained_model_from_checkpoint(config_path, checkpoint_path, training = True, trainable = True, seq_len = seq_len)
 #model.load_weights('fine_tune/model12-24single.weight')
 model.load_weights('bert_dataset/bert_custom_pretrained_v3.weight')
@@ -98,7 +97,7 @@ callbacks_list = [checkpoint, reduce_lr]
 trainable_layer = [199] if bert_version == 24 else [103]#, 87, 71, 55]
 epoch_num = [80, 40, 40, 8 , 4]
 batch_size = [8, 8, 8, 8, 4]
-resume = True
+resume = False
 st = -1
 if resume:
     if os.path.exists(opt_filepath+'.rc'):
@@ -126,8 +125,16 @@ if resume:
 else:
     output_file = sys.argv[3]
     print(f'\033[32;1mGenerating output file {output_file}...\033[0m')
-    model.compile(loss='binary_crossentropy', optimizer = 'adam', metrics = [f1_acc, 'acc'])
+    #model.compile(loss='binary_crossentropy', optimizer = 'adam', metrics = [f1_acc, 'acc'])
     model.load_weights(opt_filepath)
-    print(model.evaluate([X_val, seg_val], Y_val[:, :-1]))
-    #generate_submit(model, output_file, dict_path, data_dir)
+    #print(model.evaluate([X_val, seg_val], Y_val[:, :-1]))
+    
+    X_test, seg_test = util.load_task2_testX(dict_path, data_dir)
+
+    Y_pred = model.predict([X, seg], verbose=1)
+    np.save(output_file+'_pred_train.npy', Y_pred)
+
+    Y_pred = model.predict([X_test, seg_test], verbose=1)
+    np.save(output_file+'_pred_test.npy', Y_pred)
+    #util.generate_submit(model, output_file, dict_path, data_dir)
 

@@ -38,10 +38,8 @@ def generate_input_by_batch(X, batch_size = 3):
 
 def pretrain_model(opt_filepath, data_dir, gpu_id):
     os.environ['CUDA_VISIBLE_DEVICES'] = gpu_id 
-    config = tf.ConfigProto()
-    config.gpu_options.allow_growth = True
-    sess = tf.Session(config = config)  
-    K.tensorflow_backend.set_session(sess)
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+    tf.config.experimental.set_memory_growth(gpus[0], True)
     
     df = pd.read_csv(os.path.join(data_dir, 'task2_trainset.csv'), dtype = str)
     df_2 = pd.read_csv(os.path.join(data_dir, 'task2_public_testset.csv'), dtype = str)

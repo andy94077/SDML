@@ -17,7 +17,7 @@ import tensorflow as tf
 
 import util
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 gpus = tf.config.experimental.list_physical_devices('GPU')
 tf.config.experimental.set_memory_growth(gpus[0], True)
 '''
@@ -42,8 +42,10 @@ data_dir = sys.argv[2]
 
 X, Y, seg = util.load_task2_trainXY(dict_path, data_dir)
 assert X.shape[0] == Y.shape[0]
-np.random.seed(246601)
-rd_seq = np.random.permutation(X.shape[0])
+random.seed(246601)
+rd_seq = random.sample(range(X.shape[0]), X.shape[0])
+#np.random.seed(246601)
+#rd_seq = np.random.permutation(X.shape[0])
 X_train, X_val, Y_train, Y_val = X[rd_seq[:-1000]], X[rd_seq[-1000:]], Y[rd_seq[:-1000]], Y[rd_seq[-1000:]]
 seg_train, seg_val = seg[rd_seq[:-1000]], seg[rd_seq[-1000:]]
 print(f'\033[32;1mX_train: {X_train.shape}, X_val:{X_val.shape}, Y_train:{Y_train.shape}, Y_val:{Y_val.shape}, seg_train:{seg_train.shape}, seg_val:{seg_val.shape}\033[0m')
@@ -74,8 +76,10 @@ def f1_loss(y_true, y_pred):
     return 1 - K.mean(f1)
 
 model = load_trained_model_from_checkpoint(config_path, checkpoint_path, training = True, trainable = True, seq_len = seq_len)
-#model.load_weights('fine_tune/model12-24single.weight')
-model.load_weights('bert_dataset/bert_custom_pretrained_v3.weight')
+if bert_version == 24:
+    model.load_weights('fine_tune/model12-24single.weight')
+else:
+    model.load_weights('bert_dataset/bert_custom_pretrained_v3.weight')
 Input_layer = model.inputs[:2]
 x = model.layers[-9].output
 x = Lambda(lambda model: model[:, 0])(x)
@@ -89,7 +93,7 @@ Output_layer = Dense(3, activation = 'sigmoid')(x)
 model = Model(Input_layer, Output_layer)
 
 checkpoint = ModelCheckpoint(opt_filepath, monitor = 'val_loss', verbose = 1, save_best_only = True, mode = 'min', save_weights_only = True) 
-reduce_lr = ReduceLROnPlateau(factor=0.8, patience=4, verbose=1, min_lr=1e-6)
+reduce_lr = ReduceLROnPlateau(factor=0.7, patience=4, verbose=1, min_lr=1e-6)
 callbacks_list = [checkpoint, reduce_lr]
 
 #model.summary()
@@ -113,7 +117,7 @@ if resume:
             else: 
                 layer.trainable = False
 
-        model.compile(loss=f1_loss, optimizer = Adam(1e-3), metrics = [f1_acc, 'acc'])
+        model.compile(loss=f1_loss, optimizer = Adam(1e-4), metrics = [f1_acc, 'acc'])
         if os.path.exists(opt_filepath):
             model.load_weights(opt_filepath)
 

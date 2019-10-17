@@ -31,10 +31,15 @@ def collect_inputs(abstract, tokenizer):
         sys.stdout.write(str(done) + '\r')
     return datas
 
-def generate_input_by_batch(X, batch_size = 3):
+def generate_input_by_batch(X, batch_size):
     idx = random.sample(range(len(X)), batch_size)
     X_out = [X[i] for i in idx]
     return X_out
+
+def get_layers_name(attention_layers):
+    if isinstance(attention_layers, int):
+        attention_layers = [attention_layers]
+    return [f'Encoder-{i}-MultiHeadSelfAttention-Adapter' for i in attention_layers] + [f'Encoder-{i}-FeedForward-Adapter' for i in attention_layers] + [f'Encoder-{i}-MultiHeadSelfAttention-Norm' for i in attention_layers] + [f'Encoder-{i}-FeedForward-Norm' for i in attention_layers]
 
 def pretrain_model(opt_filepath, data_dir, gpu_id):
     os.environ['CUDA_VISIBLE_DEVICES'] = gpu_id 
@@ -53,25 +58,32 @@ def pretrain_model(opt_filepath, data_dir, gpu_id):
     X = X_1 + X_2
     print(len(X))
 
-    start_layer, end_layer = 12, 25
-    model = load_trained_model_from_checkpoint(config_path, checkpoint_path, training = True, trainable = [f'Encoder-{i}-MultiHeadSelfAttention-Adapter' for i in range(start_layer, end_layer)] + [f'Encoder-{i}-FeedForward-Adapter' for i in range(start_layer, end_layer)] + [f'Encoder-{i}-MultiHeadSelfAttention-Norm' for i in range(start_layer, end_layer)] + [f'Encoder-{i}-FeedForward-Norm' for i in range(start_layer, end_layer)], seq_len = 512)
+    model = load_trained_model_from_checkpoint(config_path, checkpoint_path, training=True, trainable=True, seq_len=512)
     compile_model(model)
-    if os.path.exists(opt_filepath):
-        model.load_weights(opt_filepath)
 
-    def _generator():
+    def _generator(batch_size=4):
         while True:
-            yield gen_batch_inputs(generate_input_by_batch(X), token_dict, token_list, seq_len = 512, mask_rate = 0.3)
+            yield gen_batch_inputs(generate_input_by_batch(X, batch_size), token_dict, token_list, seq_len = 512, mask_rate = 0.3)
     
     checkpoint = ModelCheckpoint(opt_filepath, monitor = 'val_loss', verbose = 1, save_best_only = True, mode = 'min', save_weights_only = True) 
-    with open(opt_filepath+'.rc', 'r') as f:
-        checkpoint.best = float(f.readline())
 
-    es = EarlyStopping(monitor = 'val_loss', patience = 20)
-    reduce_lr = ReduceLROnPlateau(factor=0.8, patience=4, verbose=1, min_lr=1e-5)
-    callbacks_list = [ checkpoint, es, reduce_lr ]
+    trainable_attention_layer = list(range(18, 25))
+    batch_size = [4]*6
+    for i, attention_i in enumerate(trainable_attention_layer):
+        for layer in model.layers:
+            layer.trainable = False
+        for name in get_layers_name(range(attention_i, 25)):
+            model.get_layer(name).trainable = True
+            print(model.get_layer(name).name, model.get_layer(name).trainable)
 
-    model.fit_generator(generator = _generator(), steps_per_epoch = 500, epochs = 5000, validation_data = _generator(), validation_steps = 200, callbacks = callbacks_list)
+        if os.path.exists(opt_filepath):
+            model.load_weights(opt_filepath)
+        
+        es = EarlyStopping(monitor = 'val_loss', patience = 20)
+        reduce_lr = ReduceLROnPlateau(factor=0.7, patience=4, verbose=1, min_lr=1e-6)
+        callbacks_list = [ checkpoint, es, reduce_lr ]
+
+        model.fit_generator(generator = _generator(batch_size[i]), steps_per_epoch = 500, epochs = 5000, validation_data = _generator(), validation_steps = 200, callbacks = callbacks_list)
 
 
 if __name__ == '__main__':

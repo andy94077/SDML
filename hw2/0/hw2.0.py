@@ -10,7 +10,7 @@ from tensorflow.keras.preprocessing.sequence import pad_sequences
 from tensorflow.keras import backend as K
 import tensorflow as tf
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '1' 
+os.environ['CUDA_VISIBLE_DEVICES'] = '3' 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 gpus = tf.config.experimental.list_physical_devices('GPU')
 tf.config.experimental.set_memory_growth(gpus[0], True)
@@ -30,12 +30,12 @@ idx = np.random.permutation(trainX.shape[0])
 trainX, validX = trainX[idx[:int(trainX.shape[0]*0.9)]], trainX[idx[int(trainX.shape[0]*0.9):]]
 print(f'\033[32;1mtrainX: {trainX.shape}, validX: {validX.shape}\033[0m')
 
-hidden_dim = 192
+hidden_dim = 256
 vocabulary_size = len(letter2idx)
-encoder_in = Input(trainX.shape[1:], dtype='int32')
+encoder_in = Input((max_seq_len,), dtype='int32')
 x = Lambda(lambda x: K.one_hot(x, vocabulary_size))(encoder_in)
-encoder_out, state = GRU(hidden_dim, return_sequences=True, return_state=True)(x)
-#encoder_out = RepeatVector(trainX.shape[1])(encoder_out)
+encoder_out, state = GRU(hidden_dim, return_state=True)(x)
+encoder_out = RepeatVector(max_seq_len)(encoder_out)
 
 x = GRU(hidden_dim, return_sequences=True)(encoder_out, initial_state=state)
 decoder_out = TimeDistributed(Dense(vocabulary_size, activation='softmax'))(x)

@@ -30,7 +30,7 @@ idx = np.random.permutation(trainX.shape[0])
 trainX, validX = trainX[idx[:int(trainX.shape[0]*0.9)]], trainX[idx[int(trainX.shape[0]*0.9):]]
 print(f'\033[32;1mtrainX: {trainX.shape}, validX: {validX.shape}\033[0m')
 
-hidden_dim = 192
+hidden_dim = 128
 vocabulary_size = len(letter2idx)
 encoder_in = Input(trainX.shape[1:], dtype='int32')
 x = Lambda(lambda x: K.one_hot(x, vocabulary_size))(encoder_in)

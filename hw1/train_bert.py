@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd 
-import sys, os
+import sys, os, random
 from nltk.tokenize import word_tokenize
 from multiprocessing import Pool
 from nltk.tokenize import word_tokenize
@@ -13,11 +13,11 @@ from keras.layers import Lambda, Dense, BatchNormalization, Dropout, Activation
 from keras.optimizers import Adam
 from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 from keras import backend as K
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 import util
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 gpus = tf.config.experimental.list_physical_devices('GPU')
 tf.config.experimental.set_memory_growth(gpus[0], True)
 '''
@@ -26,7 +26,7 @@ config.gpu_options.allow_growth = True
 sess = tf.Session(config = config)
 K.tensorflow_backend.set_session(sess)
 '''
-bert_version = 12
+bert_version = 24
 if bert_version == 24:
     config_path = 'bert_dataset/wwm_uncased_L-24_H-1024_A-16/bert_config.json'
     checkpoint_path = 'bert_dataset/wwm_uncased_L-24_H-1024_A-16/bert_model.ckpt'
@@ -77,18 +77,13 @@ def f1_loss(y_true, y_pred):
 
 model = load_trained_model_from_checkpoint(config_path, checkpoint_path, training = True, trainable = True, seq_len = seq_len)
 if bert_version == 24:
-    model.load_weights('fine_tune/model12-24single.weight')
+    model.load_weights('fine_tune/model12-24single.weight')#('fine_tune/model18-24_layer_by_layer.weight') #
 else:
     model.load_weights('bert_dataset/bert_custom_pretrained_v3.weight')
 Input_layer = model.inputs[:2]
 x = model.layers[-9].output
 x = Lambda(lambda model: model[:, 0])(x)
-x = Dense(1024)(x)
 x = BatchNormalization()(x)
-x = Activation('tanh')(x)
-x = Dense(1024)(x)
-x = BatchNormalization()(x)
-x = Activation('tanh')(x)
 Output_layer = Dense(3, activation = 'sigmoid')(x)
 model = Model(Input_layer, Output_layer)
 
@@ -101,7 +96,7 @@ callbacks_list = [checkpoint, reduce_lr]
 trainable_layer = [199] if bert_version == 24 else [103]#, 87, 71, 55]
 epoch_num = [80, 40, 40, 8 , 4]
 batch_size = [8, 8, 8, 8, 4]
-resume = False
+resume = True
 st = -1
 if resume:
     if os.path.exists(opt_filepath+'.rc'):

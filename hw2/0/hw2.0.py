@@ -1,4 +1,4 @@
-import os, sys
+import os, sys, argparse
 import numpy as np
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Input, GRU, Dense, RepeatVector, TimeDistributed, Lambda, Concatenate, Bidirectional
@@ -10,7 +10,7 @@ from tensorflow.keras.preprocessing.sequence import pad_sequences
 from tensorflow.keras import backend as K
 import tensorflow as tf
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '0' 
+os.environ['CUDA_VISIBLE_DEVICES'] = '1' 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 if tf.version.VERSION == '2.0.0':
     gpus = tf.config.experimental.list_physical_devices('GPU')
@@ -21,21 +21,31 @@ else:
     sess = tf.Session(config=config)
     K.set_session(sess)
 
+parser = argparse.ArgumentParser()
+parser.add_argument('data')
+parser.add_argument('model_path')
+parser.add_argument('-T', '--no-training', action='store_true')
+parser.add_argument('-s', '--submit')
+args = parser.parse_args()
+data = args.data
+model_path = args.model_path
+training = not args.no_training
+submit = args.submit
 
-data = sys.argv[1]
-model_path = sys.argv[2]
-max_seq_len = 32
+max_seq_len = 100
 with open(data, 'r') as f:
-    inputX = [line.split() for line in f.readlines()]
-word2idx = { w: i for i, w in enumerate(np.unique([item for ll in inputX for item in ll] + ['']))}
+    inputX = [line.strip() for line in f.readlines()]
+word2idx = { w: i for i, w in enumerate(np.unique([item for ll in inputX for item in ll] + ['', '<SOS>', '<EOS>']))}
 idx2word = {word2idx[w]: w for w in word2idx}
 vocabulary_size = len(word2idx)
 
-trainX = [[word2idx[w] for w in ll] for ll in inputX]
+trainX = [[word2idx['<SOS>']]+[word2idx[w] for w in ll[5:-5]]+[word2idx['<EOS>']] for ll in inputX] # [5:-5] ignores <SOS> and <EOS>
 trainX = pad_sequences(trainX, max_seq_len, padding='post', value=word2idx[''])
 np.random.seed(880301)
 idx = np.random.permutation(trainX.shape[0])
 trainX, validX = trainX[idx[:int(trainX.shape[0]*0.9)]], trainX[idx[int(trainX.shape[0]*0.9):]]
+trainY = np.concatenate([trainX[:,1:], np.full((trainX.shape[0], 1), word2idx[''])], axis=1)
+validY = np.concatenate([validX[:,1:], np.full((validX.shape[0], 1), word2idx[''])], axis=1)
 print(f'\033[32;1mtrainX: {trainX.shape}, validX: {validX.shape}\033[0m')
 
 hidden_dim = 192
@@ -57,34 +67,26 @@ model = Model([encoder_in, decoder_in], decoder_out)
 def acc(y_true, y_pred):
     return K.mean(K.all(K.equal(tf.cast(K.reshape(y_true, (-1, max_seq_len)), tf.int64), K.argmax(y_pred, axis=-1)), axis=-1))
 
-def word_acc(y_true, y_pred):
-    return K.mean(K.equal(tf.cast(K.reshape(y_true, (-1, max_seq_len)), tf.int64), K.argmax(y_pred, axis=-1)))
+model.compile(Adam(1e-3), loss='sparse_categorical_crossentropy' , metrics=[acc, 'sparse_categorical_accuracy'])
 
-def loss(y_true, y_pred):
-    return categorical_crossentropy(K.cast(K.one_hot(tf.cast(K.reshape(y_true, (-1, max_seq_len)), tf.int32), vocabulary_size), 'float'), y_pred)
-
-model.compile(Adam(1e-3), loss=loss , metrics=[acc, word_acc])
-
-training = True
 if os.path.exists(model_path+'.index') or os.path.exists(model_path):
+    print('\033[32;1mLoading Model\033[0m')
     model.load_weights(model_path)
-    print('\033[32;1mModel loaded\033[0m')
 if training:
     checkpoint = ModelCheckpoint(model_path, 'val_loss', verbose=1, save_best_only=True, save_weights_only=True)
     reduce_lr = ReduceLROnPlateau('val_loss', 0.5, 3, verbose=1, min_lr=1e-6)
     logger = CSVLogger(model_path+'.csv', append=True)
-    model.fit([trainX, trainX], trainX, validation_data=([validX, validX], validX), batch_size=128, epochs=40, callbacks=[checkpoint, reduce_lr, logger])
+    model.fit([trainX, trainX], trainY, validation_data=([validX, validX], validY), batch_size=256, epochs=40, callbacks=[checkpoint, reduce_lr, logger])
 
-submit = False
 if submit:
-    test_file = sys.argv[3]
-    with open('output.txt', 'w') as f, open(test_file, 'r') as t:
-        testX = [line.split() for line in t.readlines()]
-        testX = [[word2idx[w] if w in word2idx else word2idx[''] for w in ll] for ll in testX]
+    with open('output.txt', 'w') as f, open(submit, 'r') as t:
+        testX = [line.strip() for line in t.readlines()]
+        # [5:-5] ignores <SOS> and <EOS>
+        testX = [[word2idx['<SOS>']]+[word2idx[w] if w in word2idx else word2idx[''] for w in ll[5:-5]]+[word2idx['<EOS>']] for ll in testX]
         testX = pad_sequences(testX, max_seq_len, padding='post', value=word2idx[''])
-        pred = np.argmax(model.predict([testX,testX]), axis=-1)
+        pred = np.argmax(model.predict([testX,testX], batch_size=512), axis=-1)
         for i in pred:
-            f.write(' '.join([idx2word[idx] for idx in i]).strip() + '\n')
+            f.write('<SOS> ' + ''.join([idx2word[idx] for idx in i]).strip() + '\n')
 else:
-    print(f'Training score: {model.evaluate([trainX, trainX], trainX, batch_size=128, verbose=0)}')
-    print(f'Validaiton score: {model.evaluate([validX, validX], validX, batch_size=128, verbose=0)}')
+    print(f'Training score: {model.evaluate([trainX, trainX], trainY, batch_size=256, verbose=0)}')
+    print(f'Validaiton score: {model.evaluate([validX, validX], validY, batch_size=256, verbose=0)}')

@@ -85,13 +85,15 @@ def generate_word(Y, line_len):
 
 def decode_sequence(encoder_model, decoder_model, testX, test_ith, test_ith_str, test_word, max_seq_len, word2idx):
     encoder_out, state = encoder_model.predict([testX, test_ith_str, test_word], batch_size=256)
-    target_seq = np.full((1, max_seq_len), word2idx[''], np.int32)
+    target_seq = np.full((1, max_seq_len+1), word2idx[''], np.int32)
     target_seq[0, 0] = word2idx['<SOS>']
     for i in range(max_seq_len):
-        decoder_out = decoder_model.predict_on_batch([target_seq, encoder_out, state, test_ith, test_word])
+        decoder_out = decoder_model.predict_on_batch([target_seq[:, :-1], encoder_out, state, test_ith, test_word])
         target_seq[0, i+1] = np.argmax(decoder_out[0, i])
         if target_seq[0, i+1] == word2idx['<EOS>']:
             break
+    else:
+        target_seq[0, -1] = word2idx['<EOS>']
     return target_seq
 
 if __name__ == '__main__':

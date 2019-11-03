@@ -1,5 +1,6 @@
 import os, sys, argparse
 import numpy as np
+from tqdm import trange
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Input, GRU, Dense, RepeatVector, Lambda, Concatenate, Reshape
 from tensorflow.keras.optimizers import Adam
@@ -156,12 +157,18 @@ if __name__ == '__main__':
             testX = pad_sequences(testX, max_seq_len, padding='post', truncating='post', value=word2idx[''])
             
             word_n = [(len(ll) - ll.index('<EOS>'))//2 for ll in input_testX]
-            print(word_n[:10])
             #the index of the word in testX starts from 1, which is different from our model
             test_ith = np.array([ list(map(int, ll[-word_n[i]*2::2])) * (2 // word_n[i]) for i, ll in enumerate(input_testX)], dtype=np.int32) - 1
             test_ith_str = np.array([[word2idx[str(i[0])], word2idx[str(i[1])]] for i in test_ith], dtype=np.int32)
             test_word = np.array([list(map(lambda w: word2idx[w] if w in word2idx else word2idx[''], ll[-word_n[i]*2+1::2])) * (2 // word_n[i]) for i, ll in enumerate(input_testX)], dtype=np.int32)
 
-            for i in range(testX.shape[0]):
+            for i in trange(testX.shape[0]):
                 decoder_seq = decode_sequence(encoder_model, decoder_model, testX[i:i+1], test_ith[i:i+1], test_ith_str[i:i+1], test_word[i:i+1], max_seq_len, word2idx)
                 print(' '.join([idx2word[idx] for idx in decoder_seq.ravel()]).strip(), file=f)
+
+    if not training and not submit:
+        trainX, validX, trainY_SOS, validY_SOS, trainY, validY, line_len, valid_line_len = train_data_preprocessing(inputX, word2idx, max_seq_len)
+        print(f'\033[32;1mtrainX: {trainX.shape}, validX: {validX.shape}, trainY: {trainY.shape}, validY: {validY.shape}, trainY_SOS: {trainY_SOS.shape}, validY_SOS: {validY_SOS.shape}\033[0m')
+        print(f'Training score: {model.evaluate([trainX, trainY_SOS, ith, ith_str, word], [trainY, word], batch_size=256, verbose=0)}')
+        print(f'Validaiton score: {model.evaluate([validX, validY_SOS, valid_ith, valid_ith_str, valid_word], [validY, valid_word], batch_size=256, verbose=0)}')
+

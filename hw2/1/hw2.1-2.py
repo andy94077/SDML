@@ -86,16 +86,18 @@ def generate_word(Y, line_len):
     return [word_idx, np.array([[word2idx[str(i[0])], word2idx[str(i[1])]] for i in word_idx]), Y[np.arange(2*Y.shape[0])//2, word_idx.ravel()].reshape(-1, 2)]
 
 def decode_sequence(encoder_model, decoder_model, testX, test_ith, test_ith_str, test_word, max_seq_len, word2idx):
-    encoder_out, state = encoder_model.predict([testX, test_ith_str, test_word], batch_size=256)
-    target_seq = np.full((1, max_seq_len+1), word2idx[''], np.int32)
-    target_seq[0, 0] = word2idx['<SOS>']
+    encoder_out, state = encoder_model.predict_on_batch([testX, test_ith_str, test_word])
+    target_seq = np.full((testX.shape[0], max_seq_len+1), word2idx[''], np.int32)
+    target_seq[:, 0] = word2idx['<SOS>']
+    seq_eos = np.zeros(testX.shape[0], np.bool)
     for i in range(max_seq_len):
         decoder_out = decoder_model.predict_on_batch([target_seq[:, :-1], encoder_out, state, test_ith, test_word])
-        target_seq[0, i+1] = np.argmax(decoder_out[0, i])
-        if target_seq[0, i+1] == word2idx['<EOS>']:
+        target_seq[:, i+1] = np.argmax(decoder_out[:, i], axis=-1)
+        seq_eos[target_seq[:, i+1] == word2idx['<EOS>']] = True
+        if np.all(seq_eos):
             break
     else:
-        target_seq[0, -1] = word2idx['<EOS>']
+        target_seq[np.logical_not(seq_eos), -1] = word2idx['<EOS>']
     return target_seq
 
 if __name__ == '__main__':
@@ -137,9 +139,9 @@ if __name__ == '__main__':
         for epoch in range(epochs):
             print(f'\033[32;1mepoch: {epoch+1}/{epochs}\033[0m')
             ith, ith_str, word = generate_word(trainY, line_len)
-            print(' '.join([idx2word[i] for i in trainX[8347]]).strip(), ith[8347, 0], idx2word[word[8347, 0]], ith[8347, 1], idx2word[word[8347, 1]])
-            print(' '.join([idx2word[i] for i in trainY[8347]]).strip())
-            print(' '.join([idx2word[i] for i in trainY_SOS[8347]]).strip())
+            #print(' '.join([idx2word[i] for i in trainX[8347]]).strip(), ith[8347, 0], idx2word[word[8347, 0]], ith[8347, 1], idx2word[word[8347, 1]])
+            #print(' '.join([idx2word[i] for i in trainY[8347]]).strip())
+            #print(' '.join([idx2word[i] for i in trainY_SOS[8347]]).strip())
             valid_ith, valid_ith_str, valid_word = generate_word(validY, valid_line_len)
            
             model.fit([trainX, trainY_SOS, ith, ith_str, word], [trainY, word], validation_data=([validX, validY_SOS, valid_ith, valid_ith_str, valid_word], [validY, valid_word]), batch_size=256, epochs=1, callbacks=[checkpoint, reduce_lr, logger])
@@ -162,9 +164,10 @@ if __name__ == '__main__':
             test_ith_str = np.array([[word2idx[str(i[0])], word2idx[str(i[1])]] for i in test_ith], dtype=np.int32)
             test_word = np.array([list(map(lambda w: word2idx[w] if w in word2idx else word2idx[''], ll[-word_n[i]*2+1::2])) * (2 // word_n[i]) for i, ll in enumerate(input_testX)], dtype=np.int32)
 
-            for i in trange(testX.shape[0]):
-                decoder_seq = decode_sequence(encoder_model, decoder_model, testX[i:i+1], test_ith[i:i+1], test_ith_str[i:i+1], test_word[i:i+1], max_seq_len, word2idx)
-                print(' '.join([idx2word[idx] for idx in decoder_seq.ravel()]).strip(), file=f)
+            batch_size = 256
+            for i in trange(0, testX.shape[0], batch_size):
+                decoder_seq = decode_sequence(encoder_model, decoder_model, testX[i:i+batch_size], test_ith[i:i+batch_size], test_ith_str[i:i+batch_size], test_word[i:i+batch_size], max_seq_len, word2idx)
+                print(*[' '.join([idx2word[idx] for idx in ll]).strip() for ll in decoder_seq], sep='\n', file=f)
 
     if not training and not submit:
         trainX, validX, trainY_SOS, validY_SOS, trainY, validY, line_len, valid_line_len = train_data_preprocessing(inputX, word2idx, max_seq_len)

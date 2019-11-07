@@ -2,15 +2,15 @@ import os, sys, argparse
 import numpy as np
 from tqdm import trange
 from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Input, GRU, Dense, RepeatVector, Lambda, Concatenate, Bidirectional
+from tensorflow.keras.layers import Input, GRU, Dense, RepeatVector, Lambda, Concatenate
 from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.utils import to_categorical, plot_model
+from tensorflow.keras.utils import plot_model
 from tensorflow.keras.callbacks import ModelCheckpoint, ReduceLROnPlateau, CSVLogger
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from tensorflow.keras import backend as K
 import tensorflow as tf
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '2' 
+os.environ['CUDA_VISIBLE_DEVICES'] = '1' 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 if tf.version.VERSION == '2.0.0':
     gpus = tf.config.experimental.list_physical_devices('GPU')
@@ -48,19 +48,19 @@ def build_model(hidden_dim, max_seq_len, vocabulary_size):
     ## building encoder
     encoder_in_and_word = Concatenate()([ith_str, word, encoder_in])
     encoder_out, state = GRU(hidden_dim, return_state=True)(OneHot(encoder_in_and_word))
-    encoder_out = RepeatVector(max_seq_len)(encoder_out)
+    encoder_out_dup = RepeatVector(max_seq_len)(encoder_out)
 
     ## decoder Input and layers
     decoder_in = Input((max_seq_len,), dtype='int32', name='decoder_in')
     ith = Input((1,), dtype='int32', name='ith')
-    decoder_GRU = GRU(hidden_dim, return_sequences=True)
+    decoder_GRU = GRU(hidden_dim, return_sequences=True, return_state=True)
     decoder_Dense = Dense(vocabulary_size, activation='softmax', name='decoder_out')
 
     ## building decoder
     ith_dup = RepeatVector(max_seq_len)(K.cast(ith, 'float'))
     word_dup = K.reshape(RepeatVector(max_seq_len)(word), (-1, max_seq_len))
-    x = Concatenate()([ith_dup, OneHot(word_dup), OneHot(decoder_in), encoder_out])
-    x = decoder_GRU(x, initial_state=state)
+    x = Concatenate()([ith_dup, OneHot(word_dup), OneHot(decoder_in), encoder_out_dup])
+    x, _ = decoder_GRU(x, initial_state=state)
     decoder_out = decoder_Dense(x)
 
     ## get the specific word
@@ -72,12 +72,13 @@ def build_model(hidden_dim, max_seq_len, vocabulary_size):
     encoder_model = Model([encoder_in, ith_str, word], [encoder_out, state])
 
     ## building decoder model given encoder_out and states
+    decoder_in_one_word = Input((1,), dtype='int32', name='decoder_in_one_word')
     decoder_state_in = Input((hidden_dim,), name='decoder_state_in')
-    encoder_out = Input((max_seq_len, hidden_dim), name='decoder_encoder_out')
-    x = Concatenate()([ith_dup, OneHot(word_dup), OneHot(decoder_in), encoder_out])
-    x = decoder_GRU(x, initial_state=decoder_state_in)
+    encoder_out = Input((hidden_dim,), name='decoder_encoder_out')
+    x = Concatenate()([K.cast(ith, 'float')[:, tf.newaxis], OneHot(word), OneHot(decoder_in_one_word), encoder_out[:, tf.newaxis]])
+    x, decoder_state = decoder_GRU(x, initial_state=decoder_state_in)
     decoder_out = decoder_Dense(x)
-    decoder_model = Model([decoder_in, encoder_out, decoder_state_in, ith, word], decoder_out)
+    decoder_model = Model([decoder_in_one_word, encoder_out, decoder_state_in, ith, word], [decoder_out, decoder_state])
     return model, encoder_model, decoder_model
 
 def generate_word(Y, line_len):
@@ -90,8 +91,8 @@ def decode_sequence(encoder_model, decoder_model, testX, test_ith, test_ith_str,
     target_seq[:, 0] = word2idx['<SOS>']
     seq_eos = np.zeros(testX.shape[0], np.bool)
     for i in range(max_seq_len):
-        decoder_out = decoder_model.predict_on_batch([target_seq[:, :-1], encoder_out, state, test_ith, test_word])
-        target_seq[:, i+1] = np.argmax(decoder_out[:, i], axis=-1)
+        decoder_out, state = decoder_model.predict_on_batch([target_seq[:, i:i+1], encoder_out, state, test_ith, test_word])
+        target_seq[:, i+1] = np.argmax(decoder_out[:, 0], axis=-1)
         seq_eos[target_seq[:, i+1] == word2idx['<EOS>']] = True
         if np.all(seq_eos):
             break
@@ -121,7 +122,7 @@ if __name__ == '__main__':
 
     hidden_dim = 128
     model, encoder_model, decoder_model= build_model(hidden_dim, max_seq_len, vocabulary_size)
-    plot_model(model, show_shapes=True)
+    #plot_model(model, show_shapes=True)
 
     model.compile(Adam(1e-3), loss='sparse_categorical_crossentropy', loss_weights=[1., 10.], metrics=['sparse_categorical_accuracy'])
 

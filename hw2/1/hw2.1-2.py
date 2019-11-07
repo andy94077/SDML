@@ -10,7 +10,7 @@ from tensorflow.keras.preprocessing.sequence import pad_sequences
 from tensorflow.keras import backend as K
 import tensorflow as tf
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '2' 
+os.environ['CUDA_VISIBLE_DEVICES'] = '1' 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 if tf.version.VERSION == '2.0.0':
     gpus = tf.config.experimental.list_physical_devices('GPU')
@@ -48,20 +48,20 @@ def build_model(hidden_dim, max_seq_len, vocabulary_size):
     ## building encoder
     encoder_in_and_word = Concatenate()([ith_str, word, encoder_in])
     encoder_out, state = GRU(hidden_dim, return_state=True)(OneHot(encoder_in_and_word))
-    encoder_out = RepeatVector(max_seq_len)(encoder_out)
+    encoder_out_dup = RepeatVector(max_seq_len)(encoder_out)
 
     ## decoder Input and layers
     decoder_in = Input((max_seq_len,), dtype='int32', name='decoder_in')
     ith = Input((2,), dtype='int32', name='ith')
-    decoder_GRU = GRU(hidden_dim, return_sequences=True)
+    decoder_GRU = GRU(hidden_dim, return_sequences=True, return_state=True)
     decoder_Dense = Dense(vocabulary_size, activation='softmax', name='decoder_out')
 
     ## building decoder
     ith_dup = RepeatVector(max_seq_len)(K.cast(ith, 'float'))
     word_one_hot = K.reshape(OneHot(word), (-1, 2*vocabulary_size))
     word_dup = RepeatVector(max_seq_len)(word_one_hot)
-    x = Concatenate()([ith_dup, word_dup, OneHot(decoder_in), encoder_out])
-    x = decoder_GRU(x, initial_state=state)
+    x = Concatenate()([ith_dup, word_dup, OneHot(decoder_in), encoder_out_dup])
+    x, _ = decoder_GRU(x, initial_state=state)
     decoder_out = decoder_Dense(x)
 
     ## get the specific word
@@ -73,12 +73,13 @@ def build_model(hidden_dim, max_seq_len, vocabulary_size):
     encoder_model = Model([encoder_in, ith_str, word], [encoder_out, state])
 
     ## building decoder model given encoder_out and states
+    decoder_in_one_word = Input((1,), dtype='int32', name='decoder_in_one_word')
     decoder_state_in = Input((hidden_dim,), name='decoder_state_in')
-    encoder_out = Input((max_seq_len, hidden_dim), name='decoder_encoder_out')
-    x = Concatenate()([ith_dup, word_dup, OneHot(decoder_in), encoder_out])
-    x = decoder_GRU(x, initial_state=decoder_state_in)
+    encoder_out = Input((hidden_dim,), name='decoder_encoder_out')
+    x = Concatenate()([K.cast(ith, 'float')[:, tf.newaxis], word_one_hot[:, tf.newaxis], OneHot(decoder_in_one_word), encoder_out[:, tf.newaxis]])
+    x, decoder_state = decoder_GRU(x, initial_state=decoder_state_in)
     decoder_out = decoder_Dense(x)
-    decoder_model = Model([decoder_in, encoder_out, decoder_state_in, ith, word], decoder_out)
+    decoder_model = Model([decoder_in_one_word, encoder_out, decoder_state_in, ith, word], [decoder_out, decoder_state])
     return model, encoder_model, decoder_model
 
 def generate_word(Y, line_len):
@@ -91,8 +92,8 @@ def decode_sequence(encoder_model, decoder_model, testX, test_ith, test_ith_str,
     target_seq[:, 0] = word2idx['<SOS>']
     seq_eos = np.zeros(testX.shape[0], np.bool)
     for i in range(max_seq_len):
-        decoder_out = decoder_model.predict_on_batch([target_seq[:, :-1], encoder_out, state, test_ith, test_word])
-        target_seq[:, i+1] = np.argmax(decoder_out[:, i], axis=-1)
+        decoder_out, state = decoder_model.predict_on_batch([target_seq[:, i:i+1], encoder_out, state, test_ith, test_word])
+        target_seq[:, i+1] = np.argmax(decoder_out[:, 0], axis=-1)
         seq_eos[target_seq[:, i+1] == word2idx['<EOS>']] = True
         if np.all(seq_eos):
             break
@@ -164,7 +165,7 @@ if __name__ == '__main__':
             test_ith_str = np.array([[word2idx[str(i[0])], word2idx[str(i[1])]] for i in test_ith], dtype=np.int32)
             test_word = np.array([list(map(lambda w: word2idx[w] if w in word2idx else word2idx[''], ll[-word_n[i]*2+1::2])) * (2 // word_n[i]) for i, ll in enumerate(input_testX)], dtype=np.int32)
 
-            batch_size = 256
+            batch_size = 512
             for i in trange(0, testX.shape[0], batch_size):
                 decoder_seq = decode_sequence(encoder_model, decoder_model, testX[i:i+batch_size], test_ith[i:i+batch_size], test_ith_str[i:i+batch_size], test_word[i:i+batch_size], max_seq_len, word2idx)
                 print(*[' '.join([idx2word[idx] for idx in ll]).strip() for ll in decoder_seq], sep='\n', file=f)

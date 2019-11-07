@@ -10,7 +10,7 @@ from tensorflow.keras.preprocessing.sequence import pad_sequences
 from tensorflow.keras import backend as K
 import tensorflow as tf
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '1' 
+os.environ['CUDA_VISIBLE_DEVICES'] = '3' 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 if tf.version.VERSION == '2.0.0':
     gpus = tf.config.experimental.list_physical_devices('GPU')
@@ -67,7 +67,7 @@ model = Model([encoder_in, decoder_in], decoder_out)
 def acc(y_true, y_pred):
     return K.mean(K.all(K.equal(tf.cast(K.reshape(y_true, (-1, max_seq_len)), tf.int64), K.argmax(y_pred, axis=-1)), axis=-1))
 
-model.compile(Adam(1e-3), loss='sparse_categorical_crossentropy' , metrics=[acc, 'sparse_categorical_accuracy'])
+model.compile(Adam(1e-4, clipnorm=0.5), loss='sparse_categorical_crossentropy' , metrics=[acc, 'sparse_categorical_accuracy'])
 
 if os.path.exists(model_path+'.index') or os.path.exists(model_path):
     print('\033[32;1mLoading Model\033[0m')
@@ -76,7 +76,7 @@ if training:
     checkpoint = ModelCheckpoint(model_path, 'val_loss', verbose=1, save_best_only=True, save_weights_only=True)
     reduce_lr = ReduceLROnPlateau('val_loss', 0.5, 3, verbose=1, min_lr=1e-6)
     logger = CSVLogger(model_path+'.csv', append=True)
-    model.fit([trainX, trainX], trainY, validation_data=([validX, validX], validY), batch_size=256, epochs=40, callbacks=[checkpoint, reduce_lr, logger])
+    model.fit([trainX, trainX], trainY, validation_data=([validX, validX], validY), batch_size=512, epochs=100, callbacks=[checkpoint, reduce_lr, logger])
 
 if submit:
     with open('output.txt', 'w') as f, open(submit, 'r') as t:

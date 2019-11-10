@@ -4,7 +4,7 @@ from tqdm import trange
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Input, GRU, Dense, RepeatVector, Lambda, Concatenate
 from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.losses import SparseCategoricalCrossentropy
+from tensorflow.keras.losses import sparse_categorical_crossentropy
 from tensorflow.keras.metrics import Mean, SparseCategoricalAccuracy
 from tensorflow.keras.utils import plot_model
 from tensorflow.keras.callbacks import ModelCheckpoint, ReduceLROnPlateau, CSVLogger, TensorBoard
@@ -37,6 +37,7 @@ def train_data_preprocessing(inputX, word2idx, max_seq_len):
     trainY_SOS, validY_SOS = Y[train_seq, :-1], Y[valid_seq, :-1]
     trainY, validY = Y[train_seq, 1:], Y[valid_seq, 1:]
     line_len, valid_line_len = line_len[train_seq], line_len[valid_seq]
+
     return trainX, validX, trainY_SOS, validY_SOS, trainY, validY, line_len, valid_line_len
 
 
@@ -83,9 +84,33 @@ def build_model(hidden_dim, max_seq_len, vocabulary_size):
     decoder_model = Model([decoder_in_one_word, encoder_out, decoder_state_in, ith, word], [decoder_out, decoder_state])
     return model, encoder_model, decoder_model
 
+@tf.function #{{{
+def train_step(model, optimizer, trainX_list, trainY_list, loss_metrics, acc_metrics):
+    with tf.GradientTape() as tape:
+        decoder_out_pred, word_out_pred = model(trainX_list, training=True)
+        word_loss = sparse_categorical_crossentropy(trainY_list[1], word_out_pred)
+    grads = tape.gradient(word_loss, model.trainable_variables)
+    optimizer.apply_gradients(zip(grads, model.trainable_variables))
+    
+    decoder_loss = sparse_categorical_crossentropy(trainY_list[0], decoder_out_pred)
+    loss_metrics[0](loss_metrics[1](decoder_loss) + 10 * loss_metrics[2](word_loss))
+    acc_metrics[0](trainY_list[0], decoder_out_pred)
+    acc_metrics[1](trainY_list[1], word_out_pred)
+
+@tf.function
+def test_step(model, X_list, Y_list, loss_metrics, acc_metrics):
+    decoder_out_pred, word_out_pred = model(X_list)
+    decoder_loss = sparse_categorical_crossentropy(Y_list[0], decoder_out_pred)
+    word_loss = sparse_categorical_crossentropy(Y_list[1], word_out_pred)
+    
+    loss_metrics[0](loss_metrics[1](decoder_loss) + 10 * loss_metrics[2](word_loss))
+    acc_metrics[0](Y_list[0], decoder_out_pred)
+    acc_metrics[1](Y_list[1], word_out_pred)
+#}}}
+
 def generate_word(Y, line_len):
-    word_idx = np.array([np.random.randint(0, line_len[i]-1) for i in range(Y.shape[0])]) # do not include <SOS>
-    return [word_idx.reshape(-1, 1), np.array([[word2idx[str(i)]] for i in word_idx]), Y[np.arange(Y.shape[0]), word_idx].reshape(-1, 1)]
+    word_idx = np.array([np.random.randint(0, line_len[i]-1) for i in range(Y.shape[0])], np.int32) # do not include <SOS>
+    return [word_idx.reshape(-1, 1), np.array([[word2idx[str(i)]] for i in word_idx], np.int32), Y[np.arange(Y.shape[0]), word_idx].reshape(-1, 1)]
 
 def decode_sequence(encoder_model, decoder_model, testX, test_ith, test_ith_str, test_word, max_seq_len, word2idx):
     encoder_out, state = encoder_model.predict_on_batch([testX, test_ith_str, test_word])
@@ -116,7 +141,7 @@ if __name__ == '__main__':
 
     max_seq_len = 32 + 2 #contain <SOS> and <EOS>
     with open(data, 'r') as f:
-        inputX = [line.strip() for line in f.readlines()]#[:200000]
+        inputX = [line.strip() for line in f.readlines()]#[:20000]
     word2idx = { w: i for i, w in enumerate(np.unique([item for ll in inputX for item in ll] + ['', '<SOS>', '<EOS>'] + [str(i) for i in range(max_seq_len)]))}
     idx2word = {word2idx[w]: w for w in word2idx}
     vocabulary_size = len(word2idx)
@@ -137,20 +162,33 @@ if __name__ == '__main__':
         checkpoint = ModelCheckpoint(model_path, 'val_word_out_loss', verbose=1, save_best_only=True, save_weights_only=True)
         reduce_lr = ReduceLROnPlateau('val_word_out_loss', 0.5, 3, verbose=1, min_lr=1e-6)
         logger = CSVLogger(model_path+'.csv', append=True)
-        tensorboard = TensorBoard(model_path[:model_path.rfind('.')]+'_logs', histogram_freq=1, batch_size=1024, write_graph=False, write_grads=True, write_images=True, update_freq=512)
-        epochs = 1
-        for epoch in range(epochs):
-            print(f'\033[32;1mepoch: {epoch+1}/{epochs}\033[0m')
-            ith, ith_str, word = generate_word(trainY, line_len)
-            #print(' '.join([idx2word[i] for i in trainX[8347]]).strip(), ith[8347, 0], idx2word[word[8347, 0]])
-            #print(' '.join([idx2word[i] for i in trainY[8347]]).strip())
-            #print(' '.join([idx2word[i] for i in trainY_SOS[8347]]).strip())
-            valid_ith, valid_ith_str, valid_word = generate_word(validY, valid_line_len)
-           
-            model.fit([trainX, trainY_SOS, ith, ith_str, word], [trainY, word], validation_data=([validX, validY_SOS, valid_ith, valid_ith_str, valid_word], [validY, valid_word]), batch_size=256, epochs=10, callbacks=[checkpoint, reduce_lr, logger, tensorboard])
-            #model.fit([trainX, trainY_SOS, ith, ith_str, word], [trainY, word], validation_data=([validX, validY_SOS, valid_ith, valid_ith_str, valid_word], [validY, valid_word]), batch_size=256, epochs=10, validation_steps=4, steps_per_epoch=64, callbacks=[reduce_lr, logger, tensorboard])
-            #model.save_weights(model_path)
+        tensorboard = TensorBoard(model_path[:model_path.rfind('.')]+'_logs', histogram_freq=1, batch_size=1024, write_graph=False, write_grads=True, write_images=True, update_freq='epoch')
 
+        epochs = 10
+        step_per_epoch = 64
+        batch_size = 256
+        for epoch in range(2):
+            loss = Mean('loss', tf.float32)
+            sentence_loss = Mean('sentence_loss', tf.float32)
+            word_loss = Mean('word_loss', tf.float32)
+            sentence_acc = SparseCategoricalAccuracy('sentence_acc')
+            word_acc = SparseCategoricalAccuracy('word_acc')
+
+            ith, ith_str, word = generate_word(trainY, line_len)
+            valid_ith, valid_ith_str, valid_word = generate_word(validY, valid_line_len)
+            
+            trainX_ds = tf.data.Dataset.from_tensor_slices((trainX, trainY_SOS, ith, ith_str, word))
+            trainY_ds = tf.data.Dataset.from_tensor_slices((trainY, word))
+            train_ds = tf.data.Dataset.zip((trainX_ds, trainY_ds)).shuffle(100*batch_size).repeat().batch(batch_size)
+
+            validX_ds = tf.data.Dataset.from_tensor_slices((validX, validY_SOS, valid_ith, valid_ith_str, valid_word))
+            validY_ds = tf.data.Dataset.from_tensor_slices((validY, valid_word))
+            valid_ds = tf.data.Dataset.zip((validX_ds, validY_ds)).shuffle(100*batch_size).repeat().batch(batch_size)
+
+            model.fit(train_ds, validation_data=valid_ds, epochs=epochs*trainX.shape[0]//batch_size//step_per_epoch, steps_per_epoch=step_per_epoch, validation_steps=20, callbacks=[reduce_lr, logger, tensorboard])
+            
+            model.save_weights(model_path)
+            
         ith, ith_str, word = generate_word(trainY, line_len)
         valid_ith, valid_ith_str, valid_word = generate_word(validY, valid_line_len)
 

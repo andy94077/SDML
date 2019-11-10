@@ -5,7 +5,7 @@ from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Input, GRU, Dense, RepeatVector, Lambda, Concatenate, Reshape
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.utils import to_categorical, plot_model
-from tensorflow.keras.callbacks import ModelCheckpoint, ReduceLROnPlateau, CSVLogger
+from tensorflow.keras.callbacks import ModelCheckpoint, ReduceLROnPlateau, CSVLogger, TensorBoard
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from tensorflow.keras import backend as K
 import tensorflow as tf
@@ -169,6 +169,7 @@ if __name__ == '__main__':
             for i in trange(0, testX.shape[0], batch_size):
                 decoder_seq = decode_sequence(encoder_model, decoder_model, testX[i:i+batch_size], test_ith[i:i+batch_size], test_ith_str[i:i+batch_size], test_word[i:i+batch_size], max_seq_len, word2idx)
                 print(*[' '.join([idx2word[idx] for idx in ll]).strip() for ll in decoder_seq], sep='\n', file=f)
+            os.system(f'python3 data/hw2.1_evaluate.py --training_file {submit} --result_file output.txt')
 
     if not training and not submit:
         trainX, validX, trainY_SOS, validY_SOS, trainY, validY, line_len, valid_line_len = train_data_preprocessing(inputX, word2idx, max_seq_len)

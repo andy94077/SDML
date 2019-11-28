@@ -17,7 +17,7 @@ def draw(title=None, xlabel=None, ylabel=None, has_legend=False,savefig=False):
 	if savefig is False:
 		plt.show()
 	else:
-		plt.savefig(savefig)
+		plt.savefig(savefig, dpi=600, bbox_inches='tight')
 	plt.close()
 
 df = pd.read_csv(sys.argv[1])

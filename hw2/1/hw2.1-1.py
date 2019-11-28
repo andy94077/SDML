@@ -137,8 +137,8 @@ if __name__ == '__main__':
         checkpoint = ModelCheckpoint(model_path, 'val_word_out_loss', verbose=1, save_best_only=True, save_weights_only=True)
         reduce_lr = ReduceLROnPlateau('val_word_out_loss', 0.5, 3, verbose=1, min_lr=1e-6)
         logger = CSVLogger(model_path+'.csv', append=True)
-        tensorboard = TensorBoard(model_path[:model_path.rfind('.')]+'_logs', histogram_freq=1, batch_size=1024, write_graph=False, write_grads=True, write_images=True, update_freq=512)
-        epochs = 1
+        tensorboard = TensorBoard(model_path[:model_path.rfind('.')]+'_logs', histogram_freq=1, batch_size=1024, write_grads=True, write_images=True, update_freq=512)
+        epochs = 10
         for epoch in range(epochs):
             print(f'\033[32;1mepoch: {epoch+1}/{epochs}\033[0m')
             ith, ith_str, word = generate_word(trainY, line_len)
@@ -147,9 +147,7 @@ if __name__ == '__main__':
             #print(' '.join([idx2word[i] for i in trainY_SOS[8347]]).strip())
             valid_ith, valid_ith_str, valid_word = generate_word(validY, valid_line_len)
            
-            model.fit([trainX, trainY_SOS, ith, ith_str, word], [trainY, word], validation_data=([validX, validY_SOS, valid_ith, valid_ith_str, valid_word], [validY, valid_word]), batch_size=256, epochs=10, callbacks=[checkpoint, reduce_lr, logger, tensorboard])
-            #model.fit([trainX, trainY_SOS, ith, ith_str, word], [trainY, word], validation_data=([validX, validY_SOS, valid_ith, valid_ith_str, valid_word], [validY, valid_word]), batch_size=256, epochs=10, validation_steps=4, steps_per_epoch=64, callbacks=[reduce_lr, logger, tensorboard])
-            #model.save_weights(model_path)
+            model.fit([trainX, trainY_SOS, ith, ith_str, word], [trainY, word], validation_data=([validX, validY_SOS, valid_ith, valid_ith_str, valid_word], [validY, valid_word]), batch_size=256, epochs=1, callbacks=[checkpoint, reduce_lr, logger, tensorboard])
 
         ith, ith_str, word = generate_word(trainY, line_len)
         valid_ith, valid_ith_str, valid_word = generate_word(validY, valid_line_len)
@@ -168,10 +166,11 @@ if __name__ == '__main__':
             test_ith_str = np.array([[word2idx[str(i)]] for i in test_ith.ravel()], dtype=np.int32)
             test_word = np.array([[word2idx[ll[-1]] if ll[-1] in word2idx else word2idx['']] for ll in input_testX], dtype=np.int32)
 
-            batch_size = 512
+            batch_size = 1024
             for i in trange(0, testX.shape[0], batch_size):
                 decoder_seq = decode_sequence(encoder_model, decoder_model, testX[i:i+batch_size], test_ith[i:i+batch_size], test_ith_str[i:i+batch_size], test_word[i:i+batch_size], max_seq_len, word2idx)
                 print(*[' '.join([idx2word[idx] for idx in ll]).strip() for ll in decoder_seq], sep='\n', file=f)
+            os.system(f'python3 data/hw2.1_evaluate.py --training_file {submit} --result_file output.txt')
 
     if not training and not submit:
         trainX, validX, trainY_SOS, validY_SOS, trainY, validY, line_len, valid_line_len = train_data_preprocessing(inputX, word2idx, max_seq_len)

@@ -1,5 +1,6 @@
 hw1/bert_dataset
 hw1/test
+final/data/
 *.npy
 *.csv
 

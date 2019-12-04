@@ -24,6 +24,6 @@ model = PCA(n_components=10).fit(trainX)
 print('%.3f '*len(model.explained_variance_) % tuple(model.explained_variance_), '%.3f '*len(model.explained_variance_ratio_) % tuple(model.explained_variance_ratio_), sep='\n')
 
 for c in np.unique(trainY):
-    plt.scatter(trainX2[:, 0], trainX2[:, 1], label=c)
+    plt.scatter(trainX2[trainY == c, 0], trainX2[trainY == c, 1], s=0.1, label=str(c))
 plt.legend()
 plt.savefig('pca.jpg', dpi=300)

@@ -42,8 +42,8 @@ def save_model(path, model):
     with open(path,'wb') as f:
         pickle.dump(model, f)
 
-def submit(model, testX, output='output.csv'):
+def submit(model, testX=None, output='output.csv'):
     if isinstance(testX, str):
         testX = load_test_data(testX)
-    Y = model.predict(testX).ravel()
+    Y = model.predict(testX).ravel() if not isinstance(model, np.ndarray) else model
     np.savetxt(output, list(enumerate(Y)), '%s', delimiter=',', header='Id,Class', comments='')

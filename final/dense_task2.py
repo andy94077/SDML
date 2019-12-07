@@ -12,15 +12,24 @@ import tensorflow as tf
 
 import utils
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '0' 
+os.environ['CUDA_VISIBLE_DEVICES'] = '3' 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+gpus = tf.config.experimental.list_physical_devices('GPU')
+tf.config.experimental.set_memory_growth(gpus[0], True)
+
 parser = argparse.ArgumentParser()
 parser.add_argument('data_path')
 parser.add_argument('model_path')
+parser.add_argument('-T', '--no-training', action='store_true')
+parser.add_argument('-s', '--submit')
+parser.add_argument('-p', '--predict')
 args = parser.parse_args()
 
 data_path = args.data_path
 model_path = args.model_path
+training = not args.no_training
+submit = args.submit
+predict = args.predict
 
 trainX, trainY = utils.load_train_data(data_path)#, drop_columns=['F2', 'F7', 'F12'])
 trainY = trainY.astype(int)
@@ -47,15 +56,25 @@ model.compile(Adam(1e-3), loss='binary_crossentropy', metrics=['acc'])
 
 if os.path.exists(model_path): 
     model.load_weights(model_path)
-    print("Load Model")
+    print('\033[32;1mLoad Model\033[0m')
 
-keep_training = True
-if keep_training:
+if training:
     checkpoint = ModelCheckpoint(model_path, 'val_loss', verbose=1, save_best_only=True, save_weights_only=True)
     reduce_lr = ReduceLROnPlateau('val_loss', 0.5, 10, verbose=1, min_lr=1e-6)
     logger = CSVLogger(model_path+'.csv', append=True)
-    tensorboard = TensorBoard(model_path[:model_path.rfind('.')]+'_logs', batch_size=1024, update_freq=512)
+    tensorboard = TensorBoard(model_path[:model_path.rfind('.')]+'_logs', batch_size=1024, update_freq='epoch')
     model.fit(trainX, trainY, batch_size=128, epochs=50, validation_data=(validX, validY), callbacks=[checkpoint, reduce_lr, logger, tensorboard])
 
-print(f'\n\033[32;1mTraining score: {model.evaluate(trainX, trainY, verbose=0)}')
-print(f'Validation Score: {model.evaluate(validX, validY, verbose=0)}\033[0m')
+if submit:
+    out = tf.cast(out*2, tf.int32)
+    submit_model = Model(I, out)
+    utils.submit(submit_model, submit)
+elif predict:
+    trainX, trainY = utils.load_train_data(data_path)#, drop_columns=['F2', 'F7', 'F12'])
+    predY = model.predict(trainX, batch_size=1024).ravel()
+    if predict[-4:] != '.npy':
+        predict += '.npy'
+    np.save(predict, predY)
+else:
+    print(f'\n\033[32;1mTraining score: {model.evaluate(trainX, trainY, verbose=0)}')
+    print(f'Validation Score: {model.evaluate(validX, validY, verbose=0)}\033[0m')

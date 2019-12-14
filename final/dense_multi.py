@@ -11,7 +11,7 @@ from tensorflow.keras import backend as K
 import tensorflow as tf
 
 import utils
-from train_2step import clf_svm
+from svm import clf_svm
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '2' 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'

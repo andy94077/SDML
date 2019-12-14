@@ -11,7 +11,7 @@ from tensorflow.keras import backend as K
 import tensorflow as tf
 
 import utils
-from train_2step import clf_svm
+from svm import clf_svm
 
 def build_regression_model(input_shape, name=None):
     model = Sequential([

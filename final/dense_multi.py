@@ -41,11 +41,11 @@ if predict:
     trainY = np.round(np.load(predict))
 else:
     trainY = trainY.astype(np.float32)
-label_smoothing = 0.0
-trainY = trainY * (1 - label_smoothing) + label_smoothing / 2
+label_smoothing = 0.2
+trainY = trainY * (1 - label_smoothing) + label_smoothing * np.unique(trainY, return_counts=True)[1] / trainY.shape[0]
 trainX, validX, trainY, validY = utils.train_test_split(trainX, trainY)
 if additional_training:
-    trainX2, trainY2 = np.load(additional_training[0]), np.load(additional_training[1])
+    trainX2, trainY2 = np.load(additional_training[0])[:trainX.shape[0]], np.load(additional_training[1])[:trainY.shape[0]]
     trainX, trainY = np.concatenate([trainX, trainX2], axis=0), np.concatenate([trainY, trainY2.ravel()], axis=0)
 missing_col, valid_missing_col = trainX[:, [1, 6, 11]], validX[:, [1, 6, 11]]
 trainX = np.delete(trainX, [1, 6, 11], axis=1)
@@ -71,7 +71,7 @@ f2 = Dense(1, name='f2')(x_f2)
 x_f7 = Dense(1024, 'relu')(x)#, kernel_regularizer=l2(1e-3))(x)
 f7 = Dense(1, name='f7')(x_f7)
 
-x_f12 = Dense(1024, 'relu',)(x)# kernel_regularizer=l2(1e-3))(x)
+x_f12 = Dense(1024, 'relu')(x)#, kernel_regularizer=l2(1e-3))(x)
 f12 = Dense(1, name='f12')(x_f12)
 
 model = Model(I, [out, f2, f7, f12])
@@ -94,9 +94,17 @@ if training:
     model.fit(trainX, [trainY, missing_col[:, 0], missing_col[:, 1], missing_col[:, 2]], batch_size=512, epochs=500, validation_data=(validX, [validY, valid_missing_col[:, 0], valid_missing_col[:, 1], valid_missing_col[:, 2]]), verbose=2, callbacks=[checkpoint, reduce_lr, early_stopping, logger, tensorboard])
 
 if submit:
-    out = tf.cast(out*2, tf.int32)
-    submit_model = Model(I, out)
-    utils.submit(submit_model, submit)
+    if svm:
+        testX = utils.load_test_data(submit)
+        clf = utils.load_model(svm)
+        _, f2, f7, f12 = model.predict(testX, batch_size=1024)
+        testX = np.concatenate([testX[:, 0:1], f2, testX[:, 1:5], f7, testX[:, 5:9], f12, testX[:, 9:]], axis=1)
+        Y = clf.predict(testX)
+        utils.submit(Y)
+    else:
+        out = tf.cast(out*2, tf.int32)
+        submit_model = Model(I, out)
+        utils.submit(submit_model, submit)
 elif svm:
     X, Y = utils.load_train_data(data_path)
     Y = Y.astype(int)

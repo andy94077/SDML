@@ -12,7 +12,7 @@ import tensorflow as tf
 
 import utils
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '0' 
+os.environ['CUDA_VISIBLE_DEVICES'] = '2' 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 gpus = tf.config.experimental.list_physical_devices('GPU')
 tf.config.experimental.set_memory_growth(gpus[0], True)
@@ -30,12 +30,12 @@ training = not args.no_training
 submit = args.submit
 
 trainX, trainY = utils.load_train_data(data_path, drop_columns=['F1'])
-word2idx = {w: i for i, w in enumerate(np.unique(trainY.ravel()))}
+word2idx = {w: i for i, w in enumerate(np.unique(trainY))}
 idx2word = {word2idx[w]: w for w in word2idx}
 trainY = np.array(list(map(word2idx.get, trainY.ravel())))
 trainY = to_categorical(trainY)
-label_smoothing = 0.2
-trainY = trainY * (1 - label_smoothing) + label_smoothing / len(word2idx)
+label_smoothing = 0.0
+trainY = trainY * (1 - label_smoothing) + label_smoothing * np.unique(trainY, return_counts=True)[1] / trainY.shape[0]
 trainX, validX, trainY, validY = utils.train_test_split(trainX, trainY)
 print(f'\033[32;1mtrainX: {trainX.shape}, validX: {validX.shape}, trainY: {trainY.shape}, validY: {validY.shape}\033[0m')
 
@@ -58,6 +58,7 @@ if os.path.exists(model_path):
     model.load_weights(model_path)
     print('\033[32;1mLoad Model\033[0m')
 
+plot_model(model, 'model.jpg')
 if training:
     checkpoint = ModelCheckpoint(model_path, 'val_acc', verbose=1, save_best_only=True, save_weights_only=True)
     reduce_lr = ReduceLROnPlateau('val_acc', 0.7, 10, verbose=1, min_lr=1e-6)

@@ -26,6 +26,7 @@ parser.add_argument('-s', '--submit')
 parser.add_argument('-p', '--predict')
 parser.add_argument('-t', '--additional-training', nargs=2)
 parser.add_argument('--svm', nargs='?', const='.svm', default=False)
+parser.add_argument('--seed', type=int)
 args = parser.parse_args()
 
 data_path = args.data_path
@@ -35,22 +36,28 @@ submit = args.submit
 predict = args.predict
 additional_training = args.additional_training
 svm = model_path[:-3] + args.svm if args.svm else args.svm
+seed = args.seed if args.seed is not None else np.random.randint(0, 2147483647)
+if os.path.exists(model_path+'.seed'):
+    seed = int(np.loadtxt(model_path+'.seed'))
+else:
+    np.savetxt(model_path+'.seed', [seed])
 
 trainX, trainY = utils.load_train_data(data_path)#, drop_columns=['F2', 'F7', 'F12'])
 if predict:
     trainY = np.round(np.load(predict))
 else:
     trainY = trainY.astype(np.float32)
+distribution = np.unique(trainY, return_counts=True)[1][0] / trainY.shape[0]
 label_smoothing = 0.2
-trainY = trainY * (1 - label_smoothing) + label_smoothing * np.unique(trainY, return_counts=True)[1] / trainY.shape[0]
-trainX, validX, trainY, validY = utils.train_test_split(trainX, trainY)
+trainY = trainY * (1 - label_smoothing) + label_smoothing * distribution
+trainX, validX, trainY, validY = utils.train_test_split(trainX, trainY, seed=seed)
 if additional_training:
     trainX2, trainY2 = np.load(additional_training[0])[:trainX.shape[0]], np.load(additional_training[1])[:trainY.shape[0]]
     trainX, trainY = np.concatenate([trainX, trainX2], axis=0), np.concatenate([trainY, trainY2.ravel()], axis=0)
 missing_col, valid_missing_col = trainX[:, [1, 6, 11]], validX[:, [1, 6, 11]]
 trainX = np.delete(trainX, [1, 6, 11], axis=1)
 validX = np.delete(validX, [1, 6, 11], axis=1)
-print(f'\033[32;1mtrainX: {trainX.shape}, validX: {validX.shape}, trainY: {trainY.shape}, validY: {validY.shape}\033[0m')
+print(f'\033[32;1mtrainX: {trainX.shape}, validX: {validX.shape}, trainY: {trainY.shape}, validY: {validY.shape}, seed: {seed}\033[0m')
 
 
 I = Input(trainX.shape[1:])
@@ -113,11 +120,11 @@ elif svm:
     X[:, 1] = f2.ravel()
     X[:, 6] = f7.ravel()
     X[:, 11] = f12.ravel()
-    clf_svm(X, Y, save_model=svm)
+    clf_svm(X, Y, seed, save_model=svm)
 else:
     trainX, trainY = utils.load_train_data(data_path)
     trainY = trainY.astype(int)
-    trainX, validX, trainY, validY = utils.train_test_split(trainX, trainY)
+    trainX, validX, trainY, validY = utils.train_test_split(trainX, trainY, seed=seed)
     missing_col, valid_missing_col = trainX[:, [1, 6, 11]], validX[:, [1, 6, 11]]
     trainX = np.delete(trainX, [1, 6, 11], axis=1)
     validX = np.delete(validX, [1, 6, 11], axis=1)

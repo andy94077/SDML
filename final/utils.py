@@ -12,8 +12,9 @@ def load_test_data(path):
     return df.dropna(axis=1).drop(columns=['Id']).values
 
 
-def train_test_split(trainX, trainY, valid_ratio=0.1):
-    np.random.seed(880301)
+def train_test_split(trainX, trainY, valid_ratio=0.1, seed=None):
+    if seed is not None:
+        np.random.seed(seed)
     idx = np.random.permutation(trainX.shape[0])
     return trainX[idx[:-int(trainX.shape[0]*valid_ratio)]], trainX[idx[-int(trainX.shape[0]*valid_ratio):]], trainY[idx[:-int(trainY.shape[0]*valid_ratio)]], trainY[idx[-int(trainY.shape[0]*valid_ratio):]]
 
@@ -47,3 +48,4 @@ def submit(model, testX=None, output='output.csv'):
         testX = load_test_data(testX)
     Y = model.predict(testX).ravel() if not isinstance(model, np.ndarray) else model
     np.savetxt(output, list(enumerate(Y)), '%s', delimiter=',', header='Id,Class', comments='')
+

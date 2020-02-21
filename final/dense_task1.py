@@ -33,9 +33,10 @@ trainX, trainY = utils.load_train_data(data_path, drop_columns=['F1'])
 word2idx = {w: i for i, w in enumerate(np.unique(trainY))}
 idx2word = {word2idx[w]: w for w in word2idx}
 trainY = np.array(list(map(word2idx.get, trainY.ravel())))
+distribution = np.unique(trainY, return_counts=True)[1] / trainY.shape[0]
 trainY = to_categorical(trainY)
 label_smoothing = 0.0
-trainY = trainY * (1 - label_smoothing) + label_smoothing * np.unique(trainY, return_counts=True)[1] / trainY.shape[0]
+trainY = trainY * (1 - label_smoothing) + label_smoothing * distribution
 trainX, validX, trainY, validY = utils.train_test_split(trainX, trainY)
 print(f'\033[32;1mtrainX: {trainX.shape}, validX: {validX.shape}, trainY: {trainY.shape}, validY: {validY.shape}\033[0m')
 

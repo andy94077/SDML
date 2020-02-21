@@ -4,11 +4,11 @@ import sys, os
 from sklearn.metrics import confusion_matrix 
 from sklearn.svm import SVC, SVR 
 
-def clf_svm(X, Y, print_cm = True, save_model = False, weight = None, params = None):
+def clf_svm(X, Y, seed, print_cm = True, save_model = False, weight = None, params = None):
     if X is None:
         print("No input X -> for testing performance")
         X, Y = load_data('/tmp2/BLB_final/data_2/train.csv')
-    X_train, X_val, Y_train, Y_val = utils.train_test_split(X, Y, valid_ratio = 0.1)
+    X_train, X_val, Y_train, Y_val = utils.train_test_split(X, Y, seed=seed)
     
     if params is None:
         params = {'C':1, 'gamma':0.9, 'kernel':'rbf'} # best_rec for all 14 dims -> C = 1, gamma = 0.9
@@ -16,7 +16,7 @@ def clf_svm(X, Y, print_cm = True, save_model = False, weight = None, params = N
     if weight is None:
         clf.fit(X_train, Y_train)
     else:
-        weight_train, _, _, _ = utils.train_test_split(weight, np.ones(X.shape[0]))
+        weight_train, _, _, _ = utils.train_test_split(weight, np.ones(X.shape[0]), seed=seed)
         clf.fit(X_train, Y_train, sample_weight = weight_train)
     if save_model:
         utils.save_model(save_model, clf)
